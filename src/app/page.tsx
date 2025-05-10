@@ -8,6 +8,7 @@ import {
   ChevronRight,
   SkipForward,
   Lightbulb,
+  AlertTriangle,
 } from "lucide-react"; // Import icons
 
 // Define a type for the loaded questions, assuming direct array from JSON
@@ -59,6 +60,11 @@ export default function Home() {
     null
   );
   const [numQuestions, setNumQuestions] = useState(10); // Default 10 questions
+  const [answerHistory, setAnswerHistory] = useState<
+    Record<string, { selectedAlternativeLabel: string; isCorrect: boolean }>
+  >({});
+  const [feedbackTimeoutId, setFeedbackTimeoutId] =
+    useState<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     async function loadInitialData() {
@@ -85,6 +91,15 @@ export default function Home() {
     }
     loadInitialData();
   }, []);
+
+  useEffect(() => {
+    // Clear any active timeout when the component unmounts or quiz round changes significantly
+    return () => {
+      if (feedbackTimeoutId) {
+        clearTimeout(feedbackTimeoutId);
+      }
+    };
+  }, [feedbackTimeoutId, activeQuestions]); // Re-run if activeQuestions changes (new round)
 
   const startNewQuizRound = useCallback(
     (session: string) => {
@@ -131,8 +146,13 @@ export default function Home() {
       setSelectedAlternativeLabel(null);
       setIncorrectlyAnsweredQuestions([]); // Clear mistakes for the new round
       setQuestionToReview(null); // Ensure review modal is closed
+      setAnswerHistory({}); // Clear answer history for the new round
+      if (feedbackTimeoutId) {
+        clearTimeout(feedbackTimeoutId); // Clear any pending feedback timeout
+        setFeedbackTimeoutId(null);
+      }
     },
-    [allQuestions, numQuestions]
+    [allQuestions, numQuestions, feedbackTimeoutId]
   );
 
   const handleSelectSessionAndStart = (session: string) => {
@@ -147,13 +167,18 @@ export default function Home() {
     setAnswerStatus(null);
   };
 
+  const clearFeedbackAndTimeout = () => {
+    if (feedbackTimeoutId) {
+      clearTimeout(feedbackTimeoutId);
+      setFeedbackTimeoutId(null);
+    }
+    setAnswerStatus(null);
+    setSelectedAlternativeLabel(null);
+  };
+
   const loadNextQuestion = useCallback(
     (skipped: boolean = false) => {
-      if (!skipped) {
-        // only reset for actual answers, not skips if we want different feedback
-        setAnswerStatus(null);
-        setSelectedAlternativeLabel(null);
-      }
+      clearFeedbackAndTimeout();
 
       if (
         activeQuestions.length > 0 &&
@@ -167,16 +192,25 @@ export default function Home() {
         setCurrentQuestion(null); // End of quiz
       }
     },
-    [activeQuestions, currentQuestionIndex]
+    [activeQuestions, currentQuestionIndex, feedbackTimeoutId]
   );
 
   const handleAnswer = (alternative: Alternative) => {
     if (!currentQuestion || answerStatus) return;
+    if (feedbackTimeoutId) clearTimeout(feedbackTimeoutId); // Clear previous timeout if any
 
     const isCorrect =
       alternative.label.toUpperCase() ===
       currentQuestion.correct_answer.toUpperCase();
     setSelectedAlternativeLabel(alternative.label);
+
+    setAnswerHistory((prev) => ({
+      ...prev,
+      [currentQuestion.number]: {
+        selectedAlternativeLabel: alternative.label,
+        isCorrect,
+      },
+    }));
 
     if (isCorrect) {
       setStreak((prevStreak) => prevStreak + 1);
@@ -193,20 +227,39 @@ export default function Home() {
       });
     }
 
-    setTimeout(() => {
+    const newTimeoutId = setTimeout(() => {
       loadNextQuestion();
+      setFeedbackTimeoutId(null); // Clear the stored ID once executed
     }, 1500);
+    setFeedbackTimeoutId(newTimeoutId);
   };
 
   const handleSkip = () => {
     if (!currentQuestion || answerStatus) return; // Don't skip if an answer is already processed or no question
+    clearFeedbackAndTimeout();
     setAnswerStatus("skipped"); // Optional: visual feedback for skip
 
     // Duolingo often shows the answer when skipping
     // For simplicity here, we just move to the next question after a short delay
-    setTimeout(() => {
+    const newTimeoutId = setTimeout(() => {
       loadNextQuestion(true); // Pass true to indicate it was a skip
+      setFeedbackTimeoutId(null);
     }, 500); // Shorter delay for skip
+    setFeedbackTimeoutId(newTimeoutId);
+  };
+
+  const handleGoBack = () => {
+    if (currentQuestionIndex > 0) {
+      clearFeedbackAndTimeout();
+      const prevIndex = currentQuestionIndex - 1;
+      setCurrentQuestionIndex(prevIndex);
+      setCurrentQuestion(activeQuestions[prevIndex]);
+      // Optionally, restore previous answer selection for display, but not auto-submit or change status
+      // const previousAnswer = answerHistory[activeQuestions[prevIndex].number];
+      // if (previousAnswer) {
+      //   setSelectedAlternativeLabel(previousAnswer.selectedAlternativeLabel);
+      // }
+    }
   };
 
   const progressPercentage =
@@ -394,6 +447,15 @@ export default function Home() {
           </div>
         </header>
 
+        {/* Disclaimer Banner */}
+        <div className="mb-6 p-3 bg-yellow-100 border border-yellow-300 text-yellow-700 rounded-lg text-sm flex items-center gap-2">
+          <AlertTriangle size={20} className="flex-shrink-0" />
+          <span>
+            Please note: Questions are student-generated and may contain errors
+            as they have not been professionally reviewed.
+          </span>
+        </div>
+
         {/* Question Display */}
         {currentQuestion && (
           <div className="mb-8 flex-grow">
@@ -451,11 +513,9 @@ export default function Home() {
         <footer className="mt-auto pt-6 border-t border-slate-200">
           <div className="flex items-center justify-between">
             <button
-              onClick={() => {
-                console.log("Back button clicked - not implemented");
-              }}
-              className="flex items-center gap-2 py-3 px-5 rounded-lg border-2 border-slate-300 hover:bg-slate-100 text-slate-600 font-semibold transition-colors disabled:opacity-50"
-              disabled // Placeholder - back functionality needs more logic
+              onClick={handleGoBack}
+              className="flex items-center gap-2 py-3 px-5 rounded-lg border-2 border-slate-300 hover:bg-slate-100 text-slate-600 font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 disabled:hover:bg-transparent"
+              disabled={currentQuestionIndex === 0 || !!answerStatus} // Disable if first question or feedback is active
             >
               <ChevronLeft size={20} /> Back
             </button>
@@ -465,7 +525,7 @@ export default function Home() {
             <button
               onClick={handleSkip}
               disabled={!!answerStatus || !currentQuestion}
-              className="flex items-center gap-2 py-3 px-5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold transition-colors disabled:opacity-50 disabled:bg-slate-100"
+              className="flex items-center gap-2 py-3 px-5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold transition-colors disabled:opacity-50 disabled:bg-slate-100 disabled:cursor-not-allowed"
             >
               Skip <SkipForward size={18} />
             </button>
