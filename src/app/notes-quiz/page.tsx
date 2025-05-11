@@ -118,13 +118,41 @@ export default function NotesQuizPage() {
   const startNewQuizRound = useCallback(
     // Removed session parameter:
     () => {
+      if (!allQuestions || allQuestions.length === 0) {
+        setActiveQuestions([]);
+        setCurrentQuestion(null);
+        setShowQuizSetup(true); // Keep setup screen if no questions loaded
+        // Optionally, display an error or notification to the user
+        return;
+      }
+
       let questionsForRound: Question[] = [];
 
-      // Simplified logic: always use allQuestions (from the new source)
-      questionsForRound = [...allQuestions]
-        .sort(() => 0.5 - Math.random())
-        .slice(0, numQuestions);
+      // Determine unique sources and calculate how many to sample from each
+      const sourceKeys = new Set(
+        allQuestions.map((q) => q.pdf_filename || "notes_quiz")
+      );
+      const numUniqueSources = sourceKeys.size > 0 ? sourceKeys.size : 1; // Avoid division by zero
 
+      // Calculate how many questions to try and get from each source to aim for numQuestions in total
+      const questionsToSamplePerSource = Math.ceil(
+        numQuestions / numUniqueSources
+      );
+
+      // Use getSampledQuestions to get a preliminary list, sampled from each source
+      // getSampledQuestions already groups by pdf_filename (or fallback) and shuffles the combined result.
+      const preliminaryQuestions = getSampledQuestions(
+        allQuestions,
+        questionsToSamplePerSource
+      );
+
+      // Ensure the final list does not exceed numQuestions and is well shuffled.
+      // getSampledQuestions returns a shuffled list. Slicing it should be fine.
+      questionsForRound = preliminaryQuestions.slice(0, numQuestions);
+
+      // Fallback if the sampling somehow results in 0 questions,
+      // but we have questions available and numQuestions > 0.
+      // This is similar to the original fallback.
       if (
         questionsForRound.length === 0 &&
         allQuestions.length > 0 &&
@@ -132,7 +160,7 @@ export default function NotesQuizPage() {
       ) {
         questionsForRound = [...allQuestions]
           .sort(() => 0.5 - Math.random())
-          .slice(0, Math.min(numQuestions, 5));
+          .slice(0, Math.min(numQuestions, Math.min(5, allQuestions.length))); // Ensures not to slice more than available
       }
 
       setActiveQuestions(questionsForRound);
