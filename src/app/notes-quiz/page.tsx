@@ -47,18 +47,17 @@ export default function NotesQuizPage() {
   const [activeQuestions, setActiveQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
-  // const [selectedSession, setSelectedSession] = useState<string>("all"); // Removed session selection
+  const [selectedSession, setSelectedSession] = useState<string>("all"); // RE-ADDED session selection state
   const [streak, setStreak] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // const [sessions, setSessions] = useState<string[]>([]); // Removed sessions list
+  const [sessions, setSessions] = useState<string[]>([]); // RE-ADDED sessions list state
   const [answerStatus, setAnswerStatus] = useState<
     "correct" | "incorrect" | "skipped" | null
   >(null);
   const [selectedAlternativeLabel, setSelectedAlternativeLabel] = useState<
     string | null
   >(null);
-  // const [showSessionSelector, setShowSessionSelector] = useState(true); // Start with session selector - this will be false
   const [showQuizSetup, setShowQuizSetup] = useState(true); // For initial number of questions selection
 
   const [incorrectlyAnsweredQuestions, setIncorrectlyAnsweredQuestions] =
@@ -73,10 +72,6 @@ export default function NotesQuizPage() {
   const [feedbackTimeoutId, setFeedbackTimeoutId] =
     useState<NodeJS.Timeout | null>(null);
 
-  // Removed PIN state:
-  // const [showPinInput, setShowPinInput] = useState(false);
-  // const [enteredPin, setEnteredPin] = useState("");
-
   const router = useRouter();
 
   useEffect(() => {
@@ -90,11 +85,17 @@ export default function NotesQuizPage() {
         }
         const data: QuestionsData = await response.json();
         setAllQuestions(data);
-        // Removed session extraction:
-        // const uniqueSessions = Array.from(
-        //   new Set(data.map((q) => q.pdf_filename))
-        // );
-        // setSessions(uniqueSessions);
+
+        // RE-ADDED session extraction for this quiz page:
+        if (data.length > 0) {
+          const uniqueSessions = Array.from(
+            new Set(data.map((q) => q.pdf_filename || "Unknown Source")) // Use a fallback if pdf_filename is missing
+          );
+          setSessions(uniqueSessions.sort()); // Sort for consistent display
+        } else {
+          setSessions([]);
+        }
+
         if (data.length === 0) {
           setError("No questions found in the special quiz data source.");
         }
@@ -116,8 +117,8 @@ export default function NotesQuizPage() {
   }, [feedbackTimeoutId, activeQuestions]);
 
   const startNewQuizRound = useCallback(
-    // Removed session parameter:
-    () => {
+    // RE-ADD session parameter:
+    (session: string) => {
       if (!allQuestions || allQuestions.length === 0) {
         setActiveQuestions([]);
         setCurrentQuestion(null);
@@ -128,29 +129,36 @@ export default function NotesQuizPage() {
 
       let questionsForRound: Question[] = [];
 
-      // Determine unique sources and calculate how many to sample from each
-      const sourceKeys = new Set(
-        allQuestions.map((q) => q.pdf_filename || "notes_quiz")
-      );
-      const numUniqueSources = sourceKeys.size > 0 ? sourceKeys.size : 1; // Avoid division by zero
+      if (session === "all") {
+        // Determine unique sources and calculate how many to sample from each
+        const sourceKeys = new Set(
+          allQuestions.map((q) => q.pdf_filename || "notes_quiz")
+        );
+        const numUniqueSources = sourceKeys.size > 0 ? sourceKeys.size : 1; // Avoid division by zero
 
-      // Calculate how many questions to try and get from each source to aim for numQuestions in total
-      const questionsToSamplePerSource = Math.ceil(
-        numQuestions / numUniqueSources
-      );
+        // Calculate how many questions to try and get from each source to aim for numQuestions in total
+        const questionsToSamplePerSource = Math.ceil(
+          numQuestions / numUniqueSources
+        );
 
-      // Use getSampledQuestions to get a preliminary list, sampled from each source
-      // getSampledQuestions already groups by pdf_filename (or fallback) and shuffles the combined result.
-      const preliminaryQuestions = getSampledQuestions(
-        allQuestions,
-        questionsToSamplePerSource
-      );
+        // Use getSampledQuestions to get a preliminary list, sampled from each source
+        const preliminaryQuestions = getSampledQuestions(
+          allQuestions,
+          questionsToSamplePerSource
+        );
 
-      // Ensure the final list does not exceed numQuestions and is well shuffled.
-      // getSampledQuestions returns a shuffled list. Slicing it should be fine.
-      questionsForRound = preliminaryQuestions.slice(0, numQuestions);
+        questionsForRound = preliminaryQuestions.slice(0, numQuestions);
+      } else {
+        // Filter by the selected session, shuffle, and take the desired number
+        const sessionQuestions = allQuestions.filter(
+          (q) => (q.pdf_filename || "Unknown Source") === session
+        );
+        questionsForRound = [...sessionQuestions]
+          .sort(() => 0.5 - Math.random())
+          .slice(0, numQuestions);
+      }
 
-      // Fallback if the sampling somehow results in 0 questions,
+      // Fallback if the sampling/filtering somehow results in 0 questions,
       // but we have questions available and numQuestions > 0.
       // This is similar to the original fallback.
       if (
@@ -183,15 +191,15 @@ export default function NotesQuizPage() {
         setFeedbackTimeoutId(null);
       }
     },
-    [allQuestions, numQuestions, feedbackTimeoutId] // Removed session from dependencies
+    [allQuestions, numQuestions, feedbackTimeoutId] // REMOVED session from dependencies here, it's passed as arg
   );
 
   // Removed handlePinSubmit
   // Removed handleSelectSessionAndStart
 
   const handleStartQuiz = () => {
-    // New handler for this page
-    startNewQuizRound();
+    // Modified to pass selectedSession
+    startNewQuizRound(selectedSession);
   };
 
   const goBackToMainPage = () => {
@@ -340,12 +348,32 @@ export default function NotesQuizPage() {
         </p>
 
         <div className="w-full max-w-lg bg-white p-8 sm:p-10 rounded-2xl shadow-xl">
-          {/* Removed session select */}
+          {/* ADDED session select */}
+          <label
+            htmlFor="session-select-special"
+            className="block text-xl font-semibold text-slate-700 mb-2 text-left"
+          >
+            1. Choose a topic:
+          </label>
+          <select
+            id="session-select-special"
+            value={selectedSession}
+            onChange={(e) => setSelectedSession(e.target.value)}
+            className="block w-full p-4 text-lg border-2 border-slate-300 rounded-xl shadow-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 bg-white text-slate-800 mb-8 transition-colors duration-150 ease-in-out hover:border-slate-400"
+          >
+            <option value="all">All Topics (Sampled)</option>
+            {sessions.map((sessionName) => (
+              <option key={sessionName} value={sessionName}>
+                {sessionName.replace(".pdf", "").replace(/_/g, " ")}
+              </option>
+            ))}
+          </select>
+
           <label
             htmlFor="num-questions-slider"
             className="block text-xl font-semibold text-slate-700 mb-3 text-left"
           >
-            Number of questions:{" "}
+            2. Number of questions:{" "}
             <span className="font-bold text-sky-600">{numQuestions}</span>
           </label>
           <input
@@ -402,14 +430,21 @@ export default function NotesQuizPage() {
           Special Quiz Complete!
         </h1>
         <div className="bg-white p-8 rounded-xl shadow-2xl text-center">
-          <p className="text-2xl mb-2">You finished the Special Notes Quiz!</p>
+          <p className="text-2xl mb-2">
+            You finished:{" "}
+            <span className="font-semibold">
+              {selectedSession === "all"
+                ? "All Topics (Special Quiz)"
+                : selectedSession.replace(".pdf", "").replace(/_/g, " ")}
+            </span>
+          </p>
           <p className="text-3xl mb-8">
             Final Streak:{" "}
             <span className="text-sky-500 font-bold">{streak} 🔥</span>
           </p>
           <div className="space-y-4">
             <button
-              onClick={startNewQuizRound} // No session parameter
+              onClick={() => startNewQuizRound(selectedSession)} // Pass selectedSession
               className="w-full bg-sky-500 hover:bg-sky-600 text-white font-bold py-3 px-6 rounded-lg text-lg shadow-md hover:shadow-lg transition-all"
             >
               Play Again
@@ -440,7 +475,11 @@ export default function NotesQuizPage() {
             <X size={28} />
           </button>
           <h1 className="text-xl font-bold text-slate-700">
-            Special Notes Quiz
+            {/* Display selected session or a default title */}
+            {selectedSession === "all"
+              ? "Special Notes Quiz - All Topics"
+              : selectedSession.replace(".pdf", "").replace(/_/g, " ") +
+                " - Notes"}
           </h1>
           <div className="text-xl font-semibold text-sky-500">
             &nbsp; {/* Placeholder if streak moves */}
