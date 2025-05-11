@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation"; // Added for navigation
-import { Question, Alternative } from "../types";
+import { Question, Alternative } from "../../types"; // Adjusted path for types
 import {
   X,
   ChevronLeft,
@@ -16,16 +16,19 @@ import {
 type QuestionsData = Question[];
 
 // Utility function to get a specific number of random questions from each session
+// This might be removed or simplified if not needed for single source
 const getSampledQuestions = (
   allQuestions: Question[],
-  questionsPerSession: number = 3
+  questionsPerSession: number = 3 // Default might change
 ): Question[] => {
   const questionsBySession: Record<string, Question[]> = {};
   allQuestions.forEach((q) => {
-    if (!questionsBySession[q.pdf_filename]) {
-      questionsBySession[q.pdf_filename] = [];
+    // pdf_filename might not be relevant if questions are from a single source
+    const key = q.pdf_filename || "notes_quiz";
+    if (!questionsBySession[key]) {
+      questionsBySession[key] = [];
     }
-    questionsBySession[q.pdf_filename].push(q);
+    questionsBySession[key].push(q);
   });
 
   let sampledQuestions: Question[] = [];
@@ -38,23 +41,26 @@ const getSampledQuestions = (
   return sampledQuestions.sort(() => 0.5 - Math.random());
 };
 
-export default function Home() {
+export default function NotesQuizPage() {
+  // Renamed component
   const [allQuestions, setAllQuestions] = useState<Question[]>([]);
   const [activeQuestions, setActiveQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
-  const [selectedSession, setSelectedSession] = useState<string>("all");
+  // const [selectedSession, setSelectedSession] = useState<string>("all"); // Removed session selection
   const [streak, setStreak] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [sessions, setSessions] = useState<string[]>([]);
+  // const [sessions, setSessions] = useState<string[]>([]); // Removed sessions list
   const [answerStatus, setAnswerStatus] = useState<
     "correct" | "incorrect" | "skipped" | null
   >(null);
   const [selectedAlternativeLabel, setSelectedAlternativeLabel] = useState<
     string | null
   >(null);
-  const [showSessionSelector, setShowSessionSelector] = useState(true); // Start with session selector
+  // const [showSessionSelector, setShowSessionSelector] = useState(true); // Start with session selector - this will be false
+  const [showQuizSetup, setShowQuizSetup] = useState(true); // For initial number of questions selection
+
   const [incorrectlyAnsweredQuestions, setIncorrectlyAnsweredQuestions] =
     useState<Question[]>([]);
   const [questionToReview, setQuestionToReview] = useState<Question | null>(
@@ -67,32 +73,34 @@ export default function Home() {
   const [feedbackTimeoutId, setFeedbackTimeoutId] =
     useState<NodeJS.Timeout | null>(null);
 
-  // New state for PIN functionality
-  const [showPinInput, setShowPinInput] = useState(false);
-  const [enteredPin, setEnteredPin] = useState("");
+  // Removed PIN state:
+  // const [showPinInput, setShowPinInput] = useState(false);
+  // const [enteredPin, setEnteredPin] = useState("");
 
-  const router = useRouter(); // Initialize router
+  const router = useRouter();
 
   useEffect(() => {
     async function loadInitialData() {
       setIsLoading(true);
       try {
-        const response = await fetch("/extracted_marketing_questions.json");
+        // MODIFIED: Fetch from the new JSON file
+        const response = await fetch("/generated_marketing_questions.json");
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data: QuestionsData = await response.json();
         setAllQuestions(data);
-        const uniqueSessions = Array.from(
-          new Set(data.map((q) => q.pdf_filename))
-        );
-        setSessions(uniqueSessions);
+        // Removed session extraction:
+        // const uniqueSessions = Array.from(
+        //   new Set(data.map((q) => q.pdf_filename))
+        // );
+        // setSessions(uniqueSessions);
         if (data.length === 0) {
-          setError("No questions found in the data source.");
+          setError("No questions found in the special quiz data source.");
         }
       } catch (e: any) {
         setError(e.message);
-        console.error("Failed to load questions:", e);
+        console.error("Failed to load special quiz questions:", e);
       }
       setIsLoading(false);
     }
@@ -100,40 +108,28 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    // Clear any active timeout when the component unmounts or quiz round changes significantly
     return () => {
       if (feedbackTimeoutId) {
         clearTimeout(feedbackTimeoutId);
       }
     };
-  }, [feedbackTimeoutId, activeQuestions]); // Re-run if activeQuestions changes (new round)
+  }, [feedbackTimeoutId, activeQuestions]);
 
   const startNewQuizRound = useCallback(
-    (session: string) => {
+    // Removed session parameter:
+    () => {
       let questionsForRound: Question[] = [];
 
-      if (session === "all") {
-        // Shuffle all questions and take the desired number
-        questionsForRound = [...allQuestions]
-          .sort(() => 0.5 - Math.random())
-          .slice(0, numQuestions);
-      } else {
-        // Filter by session, shuffle, and take the desired number
-        const sessionQuestions = allQuestions.filter(
-          (q) => q.pdf_filename === session
-        );
-        questionsForRound = [...sessionQuestions]
-          .sort(() => 0.5 - Math.random())
-          .slice(0, numQuestions);
-      }
-      // If sampling results in 0 (e.g. numQuestions is 0 or source is empty), fallback to a small sample if possible
+      // Simplified logic: always use allQuestions (from the new source)
+      questionsForRound = [...allQuestions]
+        .sort(() => 0.5 - Math.random())
+        .slice(0, numQuestions);
+
       if (
         questionsForRound.length === 0 &&
         allQuestions.length > 0 &&
         numQuestions > 0
       ) {
-        // This case should be rare if numQuestions > 0 and allQuestions has items
-        // but as a fallback, try taking a few from all questions
         questionsForRound = [...allQuestions]
           .sort(() => 0.5 - Math.random())
           .slice(0, Math.min(numQuestions, 5));
@@ -143,47 +139,36 @@ export default function Home() {
       setCurrentQuestionIndex(0);
       if (questionsForRound.length > 0) {
         setCurrentQuestion(questionsForRound[0]);
-        setShowSessionSelector(false); // Hide session selector once quiz starts
+        setShowQuizSetup(false); // Hide setup once quiz starts
       } else {
         setCurrentQuestion(null);
-        setShowSessionSelector(true); // Show session selector if no questions for this round
+        setShowQuizSetup(true); // Show setup if no questions
       }
       setStreak(0);
       setAnswerStatus(null);
       setSelectedAlternativeLabel(null);
-      setIncorrectlyAnsweredQuestions([]); // Clear mistakes for the new round
-      setQuestionToReview(null); // Ensure review modal is closed
-      setAnswerHistory({}); // Clear answer history for the new round
+      setIncorrectlyAnsweredQuestions([]);
+      setQuestionToReview(null);
+      setAnswerHistory({});
       if (feedbackTimeoutId) {
-        clearTimeout(feedbackTimeoutId); // Clear any pending feedback timeout
+        clearTimeout(feedbackTimeoutId);
         setFeedbackTimeoutId(null);
       }
     },
-    [allQuestions, numQuestions, feedbackTimeoutId]
+    [allQuestions, numQuestions, feedbackTimeoutId] // Removed session from dependencies
   );
 
-  const handlePinSubmit = () => {
-    if (enteredPin === "5555") {
-      router.push("/notes-quiz"); // Placeholder path, will confirm with you
-      setShowPinInput(false);
-      setEnteredPin("");
-    } else {
-      alert("Incorrect PIN. Please try again."); // Basic feedback
-      setEnteredPin("");
-      // Optionally, focus the input again or provide more attempts
-    }
+  // Removed handlePinSubmit
+  // Removed handleSelectSessionAndStart
+
+  const handleStartQuiz = () => {
+    // New handler for this page
+    startNewQuizRound();
   };
 
-  const handleSelectSessionAndStart = (session: string) => {
-    setSelectedSession(session);
-    startNewQuizRound(session);
-  };
-
-  const goToSessionSelector = () => {
-    setShowSessionSelector(true);
-    setCurrentQuestion(null);
-    setActiveQuestions([]);
-    setAnswerStatus(null);
+  const goBackToMainPage = () => {
+    // Modified to go to main page
+    router.push("/");
   };
 
   const clearFeedbackAndTimeout = () => {
@@ -206,9 +191,9 @@ export default function Home() {
         const nextIndex = currentQuestionIndex + 1;
         setCurrentQuestionIndex(nextIndex);
         setCurrentQuestion(activeQuestions[nextIndex]);
-        if (skipped) setAnswerStatus(null); // Clear skip status for next question
+        if (skipped) setAnswerStatus(null);
       } else {
-        setCurrentQuestion(null); // End of quiz
+        setCurrentQuestion(null);
       }
     },
     [activeQuestions, currentQuestionIndex, feedbackTimeoutId]
@@ -216,7 +201,7 @@ export default function Home() {
 
   const handleAnswer = (alternative: Alternative) => {
     if (!currentQuestion || answerStatus) return;
-    if (feedbackTimeoutId) clearTimeout(feedbackTimeoutId); // Clear previous timeout if any
+    if (feedbackTimeoutId) clearTimeout(feedbackTimeoutId);
 
     const isCorrect =
       alternative.label.toUpperCase() ===
@@ -226,6 +211,7 @@ export default function Home() {
     setAnswerHistory((prev) => ({
       ...prev,
       [currentQuestion.number]: {
+        // Assuming question numbers are still unique
         selectedAlternativeLabel: alternative.label,
         isCorrect,
       },
@@ -237,7 +223,6 @@ export default function Home() {
     } else {
       setStreak(0);
       setAnswerStatus("incorrect");
-      // Add to incorrectly answered questions list, avoid duplicates if any
       setIncorrectlyAnsweredQuestions((prev) => {
         if (!prev.find((q) => q.number === currentQuestion.number)) {
           return [...prev, currentQuestion];
@@ -248,22 +233,20 @@ export default function Home() {
 
     const newTimeoutId = setTimeout(() => {
       loadNextQuestion();
-      setFeedbackTimeoutId(null); // Clear the stored ID once executed
+      setFeedbackTimeoutId(null);
     }, 1500);
     setFeedbackTimeoutId(newTimeoutId);
   };
 
   const handleSkip = () => {
-    if (!currentQuestion || answerStatus) return; // Don't skip if an answer is already processed or no question
+    if (!currentQuestion || answerStatus) return;
     clearFeedbackAndTimeout();
-    setAnswerStatus("skipped"); // Optional: visual feedback for skip
+    setAnswerStatus("skipped");
 
-    // Duolingo often shows the answer when skipping
-    // For simplicity here, we just move to the next question after a short delay
     const newTimeoutId = setTimeout(() => {
-      loadNextQuestion(true); // Pass true to indicate it was a skip
+      loadNextQuestion(true);
       setFeedbackTimeoutId(null);
-    }, 500); // Shorter delay for skip
+    }, 500);
     setFeedbackTimeoutId(newTimeoutId);
   };
 
@@ -273,11 +256,6 @@ export default function Home() {
       const prevIndex = currentQuestionIndex - 1;
       setCurrentQuestionIndex(prevIndex);
       setCurrentQuestion(activeQuestions[prevIndex]);
-      // Optionally, restore previous answer selection for display, but not auto-submit or change status
-      // const previousAnswer = answerHistory[activeQuestions[prevIndex].number];
-      // if (previousAnswer) {
-      //   setSelectedAlternativeLabel(previousAnswer.selectedAlternativeLabel);
-      // }
     }
   };
 
@@ -289,13 +267,12 @@ export default function Home() {
   if (isLoading) {
     return (
       <div className="flex justify-center items-center min-h-screen bg-slate-50">
-        Loading...
+        Loading Special Quiz...
       </div>
     );
   }
 
   if (error && !allQuestions.length) {
-    // Only show full page error if questions didn't load at all
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-red-100 via-rose-100 to-pink-100 p-6 text-center font-[family-name:var(--font-geist-sans)]">
         <Lightbulb size={64} className="text-red-500 mb-6" />
@@ -303,8 +280,8 @@ export default function Home() {
           Oops! Something went wrong.
         </h1>
         <p className="text-lg text-slate-600 mb-8 max-w-md">
-          We couldn't load the quiz questions. Please check your connection or
-          try refreshing the page.
+          We couldn't load the special quiz questions. Please check your
+          connection or try refreshing the page.
         </p>
         <p className="text-sm text-slate-500">Error details: {error}</p>
         <button
@@ -317,68 +294,54 @@ export default function Home() {
     );
   }
 
+  // Simplified initial screen - only number of questions
   if (
-    showSessionSelector ||
+    showQuizSetup ||
     (allQuestions.length > 0 &&
       activeQuestions.length === 0 &&
       !currentQuestion)
   ) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-green-50 via-sky-50 to-indigo-50 p-6 text-center font-[family-name:var(--font-geist-sans)]">
-        <Lightbulb size={64} className="text-green-500 mb-6" />
-        <h1 className="text-5xl font-bold text-green-700 mb-3 tracking-tight">
-          Marketing Quiz Challenge
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-sky-50 via-cyan-50 to-blue-50 p-6 text-center font-[family-name:var(--font-geist-sans)]">
+        <Lightbulb size={64} className="text-sky-500 mb-6" />
+        <h1 className="text-5xl font-bold text-sky-700 mb-3 tracking-tight">
+          Special Notes Quiz
         </h1>
         <p className="text-xl text-slate-600 mb-10 max-w-lg">
-          With Love for Biem 15 :)
+          Test your knowledge from the generated notes!
         </p>
 
         <div className="w-full max-w-lg bg-white p-8 sm:p-10 rounded-2xl shadow-xl">
-          <label
-            htmlFor="session-select"
-            className="block text-xl font-semibold text-slate-700 mb-2 text-left"
-          >
-            1. Choose a topic:
-          </label>
-          <select
-            id="session-select"
-            value={selectedSession}
-            onChange={(e) => setSelectedSession(e.target.value)}
-            className="block w-full p-4 text-lg border-2 border-slate-300 rounded-xl shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-slate-800 mb-8 transition-colors duration-150 ease-in-out hover:border-slate-400"
-          >
-            <option value="all">All Topics (Sampled)</option>
-            {sessions.map((session) => (
-              <option key={session} value={session}>
-                {session.replace(".pdf", "").replace(/_/g, " ")}
-              </option>
-            ))}
-          </select>
+          {/* Removed session select */}
           <label
             htmlFor="num-questions-slider"
             className="block text-xl font-semibold text-slate-700 mb-3 text-left"
           >
-            2. Number of questions:{" "}
-            <span className="font-bold text-green-600">{numQuestions}</span>
+            Number of questions:{" "}
+            <span className="font-bold text-sky-600">{numQuestions}</span>
           </label>
           <input
             type="range"
             id="num-questions-slider"
-            min="5" // Min 5 questions
-            max="50" // Max 30 questions (can be dynamic based on allQuestions.length)
+            min="5"
+            max={
+              allQuestions.length > 0 ? Math.min(allQuestions.length, 50) : 50
+            } // Dynamic max based on loaded questions
             value={numQuestions}
             onChange={(e) => setNumQuestions(parseInt(e.target.value, 10))}
-            className="w-full h-3 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-green-500 mb-8"
+            className="w-full h-3 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-sky-500 mb-8"
           />
           <button
-            onClick={() => handleSelectSessionAndStart(selectedSession)}
-            disabled={allQuestions.length === 0 && !error} // Disable if no questions AND no critical error shown above
-            className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-4 px-6 rounded-xl text-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-150 ease-in-out disabled:bg-slate-300 disabled:shadow-none disabled:transform-none flex items-center justify-center gap-2"
+            onClick={handleStartQuiz} // Use new handler
+            disabled={allQuestions.length === 0 && !error}
+            className="w-full bg-sky-500 hover:bg-sky-600 text-white font-bold py-4 px-6 rounded-xl text-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-150 ease-in-out disabled:bg-slate-300 disabled:shadow-none disabled:transform-none flex items-center justify-center gap-2"
           >
-            Start Quiz <ChevronRight size={24} />
+            Start Special Quiz <ChevronRight size={24} />
           </button>
           {allQuestions.length === 0 && !isLoading && !error && (
             <p className="text-sm text-red-500 mt-6">
-              No questions available to load. Please check the data source.
+              No special questions available to load. Please check the data
+              source: generated_marketing_questions.json
             </p>
           )}
           {error && allQuestions.length > 0 && (
@@ -386,38 +349,14 @@ export default function Home() {
               Note: There was an issue loading initial data, but some questions
               might be available. Error: {error}
             </p>
-          )}{" "}
-          {/* Show minor error if some questions still loaded */}
+          )}
         </div>
         <button
-          onClick={() => setShowPinInput((prev) => !prev)}
-          className="text-sm text-slate-500 mt-10 hover:text-slate-700 underline focus:outline-none cursor-pointer"
+          onClick={goBackToMainPage}
+          className="mt-10 text-sm text-slate-500 hover:text-slate-700 underline focus:outline-none cursor-pointer"
         >
-          Ready to learn something new?
+          Back to Main Quiz Selection
         </button>
-        {showPinInput && (
-          <div className="mt-4 w-full max-w-xs mx-auto">
-            <input
-              type="password"
-              value={enteredPin}
-              onChange={(e) => setEnteredPin(e.target.value)}
-              placeholder="Enter Special PIN"
-              maxLength={4}
-              className="w-full p-3 text-lg border-2 border-slate-300 rounded-xl shadow-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 bg-white text-slate-800 transition-colors duration-150 ease-in-out mb-3"
-              onKeyPress={(event) => {
-                if (event.key === "Enter") {
-                  handlePinSubmit();
-                }
-              }}
-            />
-            <button
-              onClick={handlePinSubmit}
-              className="w-full bg-sky-500 hover:bg-sky-600 text-white font-bold py-3 px-6 rounded-xl text-lg shadow-md hover:shadow-lg transition-all duration-150 ease-in-out"
-            >
-              Unlock Special Quiz
-            </button>
-          </div>
-        )}
       </div>
     );
   }
@@ -427,38 +366,31 @@ export default function Home() {
     !currentQuestion &&
     activeQuestions.length > 0 &&
     currentQuestionIndex >= activeQuestions.length - 1 &&
-    !showSessionSelector
+    !showQuizSetup // Use new state variable
   ) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-100 p-4 font-[family-name:var(--font-geist-sans)] text-slate-800">
-        <h1 className="text-4xl font-bold text-green-600 mb-6">
-          Quiz Complete!
+        <h1 className="text-4xl font-bold text-sky-600 mb-6">
+          Special Quiz Complete!
         </h1>
         <div className="bg-white p-8 rounded-xl shadow-2xl text-center">
-          <p className="text-2xl mb-2">
-            You finished:{" "}
-            <span className="font-semibold">
-              {selectedSession === "all"
-                ? "All Topics"
-                : selectedSession.replace(".pdf", "").replace(/_/g, " ")}
-            </span>
-          </p>
+          <p className="text-2xl mb-2">You finished the Special Notes Quiz!</p>
           <p className="text-3xl mb-8">
             Final Streak:{" "}
-            <span className="text-green-500 font-bold">{streak} 🔥</span>
+            <span className="text-sky-500 font-bold">{streak} 🔥</span>
           </p>
           <div className="space-y-4">
             <button
-              onClick={() => startNewQuizRound(selectedSession)}
-              className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg text-lg shadow-md hover:shadow-lg transition-all"
+              onClick={startNewQuizRound} // No session parameter
+              className="w-full bg-sky-500 hover:bg-sky-600 text-white font-bold py-3 px-6 rounded-lg text-lg shadow-md hover:shadow-lg transition-all"
             >
               Play Again
             </button>
             <button
-              onClick={goToSessionSelector}
+              onClick={goBackToMainPage} // Go back to main page
               className="w-full bg-slate-500 hover:bg-slate-600 text-white font-bold py-3 px-6 rounded-lg text-lg shadow-md hover:shadow-lg transition-all"
             >
-              Choose New Topic
+              Back to Main Menu
             </button>
           </div>
         </div>
@@ -474,37 +406,32 @@ export default function Home() {
         {/* Header */}
         <header className="flex items-center justify-between mb-6 sm:mb-8">
           <button
-            onClick={goToSessionSelector}
+            onClick={goBackToMainPage} // Go back to main page
             className="text-slate-500 hover:text-slate-700"
           >
             <X size={28} />
           </button>
           <h1 className="text-xl font-bold text-slate-700">
-            {selectedSession === "all"
-              ? "Daily Review"
-              : selectedSession.replace(".pdf", "").replace(/_/g, " ")}
+            Special Notes Quiz
           </h1>
-          <div className="text-xl font-semibold text-green-500">
-            {" "}
-            {/* Streak moved to right panel as per Duolingo */}
-            {/* Streak: {streak} 🔥 */} &nbsp;{" "}
-            {/* Placeholder to keep alignment if needed */}
+          <div className="text-xl font-semibold text-sky-500">
+            &nbsp; {/* Placeholder if streak moves */}
           </div>
         </header>
 
-        {/* Disclaimer Banner */}
+        {/* Disclaimer Banner - Can be kept or removed for this quiz */}
         <div className="mb-6 p-3 bg-yellow-100 border border-yellow-300 text-yellow-700 rounded-lg text-sm flex items-center gap-2">
           <AlertTriangle size={20} className="flex-shrink-0" />
           <span>
-            Please note: Questions are student-generated and may contain errors
-            as they have not been professionally reviewed.
+            Please note: These questions are generated from notes and may
+            contain errors.
           </span>
         </div>
 
         {/* Question Display */}
         {currentQuestion && (
           <div className="mb-8 flex-grow">
-            <div className="bg-green-200 dark:bg-green-800/40 p-6 rounded-xl shadow-sm mb-8 min-h-[100px] flex items-center">
+            <div className="bg-sky-200 dark:bg-sky-800/40 p-6 rounded-xl shadow-sm mb-8 min-h-[100px] flex items-center">
               <p className="text-xl md:text-2xl font-medium text-slate-800 dark:text-slate-100">
                 {currentQuestion.question_text}
               </p>
@@ -519,21 +446,19 @@ export default function Home() {
                   currentQuestion.correct_answer.toUpperCase();
 
                 let buttonClass =
-                  "w-full text-left p-4 sm:p-5 rounded-xl border-2 border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-green-400 text-slate-700 font-medium text-base sm:text-lg";
+                  "w-full text-left p-4 sm:p-5 rounded-xl border-2 border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-sky-400 text-slate-700 font-medium text-base sm:text-lg";
 
                 if (answerStatus && isSelected) {
-                  // Selected by user
                   buttonClass =
                     answerStatus === "correct"
-                      ? "w-full text-left p-4 sm:p-5 rounded-xl border-2 border-green-500 bg-green-50 text-green-700 font-semibold text-base sm:text-lg ring-2 ring-green-500" // Correct and selected
-                      : "w-full text-left p-4 sm:p-5 rounded-xl border-2 border-red-500 bg-red-50 text-red-700 font-semibold text-base sm:text-lg ring-2 ring-red-500"; // Incorrect and selected
+                      ? "w-full text-left p-4 sm:p-5 rounded-xl border-2 border-green-500 bg-green-50 text-green-700 font-semibold text-base sm:text-lg ring-2 ring-green-500"
+                      : "w-full text-left p-4 sm:p-5 rounded-xl border-2 border-red-500 bg-red-50 text-red-700 font-semibold text-base sm:text-lg ring-2 ring-red-500";
                 } else if (answerStatus && isCorrectAnswer) {
-                  // Correct answer, but not necessarily selected (shown when user is wrong)
                   buttonClass =
                     "w-full text-left p-4 sm:p-5 rounded-xl border-2 border-green-500 bg-green-50 text-green-700 font-semibold text-base sm:text-lg";
                 } else if (answerStatus === "skipped" && isCorrectAnswer) {
-                  buttonClass =
-                    "w-full text-left p-4 sm:p-5 rounded-xl border-2 border-sky-500 bg-sky-50 text-sky-700 font-semibold text-base sm:text-lg"; // Show correct if skipped
+                  buttonClass = // Correct color for skipped is sky blue
+                    "w-full text-left p-4 sm:p-5 rounded-xl border-2 border-sky-500 bg-sky-50 text-sky-700 font-semibold text-base sm:text-lg";
                 }
 
                 return (
@@ -560,7 +485,7 @@ export default function Home() {
             <button
               onClick={handleGoBack}
               className="flex items-center gap-2 py-3 px-5 rounded-lg border-2 border-slate-300 hover:bg-slate-100 text-slate-600 font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 disabled:hover:bg-transparent"
-              disabled={currentQuestionIndex === 0 || !!answerStatus} // Disable if first question or feedback is active
+              disabled={currentQuestionIndex === 0 || !!answerStatus}
             >
               <ChevronLeft size={20} /> Back
             </button>
@@ -586,15 +511,19 @@ export default function Home() {
         <p className="text-sm text-slate-500 mb-3">Keep going!</p>
         <div className="w-full bg-slate-200 rounded-full h-3 mb-1 overflow-hidden">
           <div
-            className="bg-green-500 h-3 rounded-full transition-all duration-300 ease-in-out"
+            className="bg-sky-500 h-3 rounded-full transition-all duration-300 ease-in-out" // Theme color sky
             style={{ width: `${progressPercentage}%` }}
           ></div>
         </div>
-        <div className="text-right text-sm font-medium text-green-600 mb-6">
+        <div className="text-right text-sm font-medium text-sky-600 mb-6">
+          {" "}
+          {/* Theme color sky */}
           {Math.round(progressPercentage)}%
         </div>
 
-        <div className="text-xl font-semibold text-green-500 mb-6 text-center border-t pt-6">
+        <div className="text-xl font-semibold text-sky-500 mb-6 text-center border-t pt-6">
+          {" "}
+          {/* Theme color sky */}
           Streak: {streak} 🔥
         </div>
 
@@ -605,7 +534,7 @@ export default function Home() {
           </h3>
           {incorrectlyAnsweredQuestions.length === 0 ? (
             <p className="text-slate-400 text-center text-sm py-4">
-              No mistakes yet in this round! Keep it up! 👍
+              No mistakes yet in this round! Great job! 🌟
             </p>
           ) : (
             <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-4 lg:grid-cols-5 gap-2">
@@ -623,16 +552,16 @@ export default function Home() {
           )}
         </div>
 
-        {/* Placeholder for decorative image/content like Duolingo */}
-        <div className="mt-auto flex-grow flex items-center justify-center bg-gradient-to-br from-green-50 via-sky-50 to-indigo-50 rounded-lg p-4">
+        <div className="mt-auto flex-grow flex items-center justify-center bg-gradient-to-br from-sky-50 via-cyan-50 to-blue-50 rounded-lg p-4">
+          {" "}
+          {/* Theme color sky */}
           <p className="text-slate-400 text-center text-sm">
-            {/* Replace with actual image/SVG later */}
-            Future home of encouraging illustrations! 🌿
+            Knowledge is power! 💡
           </p>
         </div>
       </div>
 
-      {/* Review Question Modal */}
+      {/* Review Question Modal (similar structure, colors might be themed if needed) */}
       {questionToReview && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 transition-opacity duration-300 ease-in-out animate-fadeIn">
           <div className="bg-white dark:bg-slate-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto animate-scaleUp">
@@ -657,12 +586,13 @@ export default function Home() {
                 const isCorrect =
                   alt.label.toUpperCase() ===
                   questionToReview.correct_answer.toUpperCase();
+                // Modal colors can remain standard or be themed to 'sky'
                 return (
                   <div
                     key={alt.label}
                     className={`p-4 rounded-lg border-2 ${
                       isCorrect
-                        ? "border-green-500 bg-green-50 dark:bg-green-700/30 dark:border-green-600"
+                        ? "border-green-500 bg-green-50 dark:bg-green-700/30 dark:border-green-600" // Keep green for correct distinction
                         : "border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700"
                     }`}
                   >
@@ -690,7 +620,7 @@ export default function Home() {
             </div>
             <button
               onClick={() => setQuestionToReview(null)}
-              className="mt-8 w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-3 rounded-lg shadow-md transition-colors"
+              className="mt-8 w-full bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 rounded-lg shadow-md transition-colors" // Theme color sky
             >
               Got it!
             </button>
