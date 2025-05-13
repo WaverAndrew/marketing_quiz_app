@@ -15,6 +15,40 @@ import {
 // Define a type for the loaded questions, assuming direct array from JSON
 type QuestionsData = Question[];
 
+// Helper function to shuffle an array (Fisher-Yates shuffle)
+const shuffleArray = <T,>(array: T[]): T[] => {
+  const newArray = [...array];
+  for (let i = newArray.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+  }
+  return newArray;
+};
+
+// Helper function to get a truly random subset of questions
+const getRandomQuestions = (
+  questions: Question[],
+  count: number
+): Question[] => {
+  const shuffled = shuffleArray([...questions]);
+  return shuffled.slice(0, count);
+};
+
+// Helper function to shuffle alternatives within a question
+const shuffleAlternatives = (question: Question | null): Question | null => {
+  if (!question) return null;
+  // Ensure alternatives exist and is an array before shuffling
+  if (!question.alternatives || !Array.isArray(question.alternatives)) {
+    console.warn(
+      "Question is missing alternatives or alternatives is not an array:",
+      question
+    );
+    return question; // Return original question if alternatives are malformed
+  }
+  const shuffledAlts = shuffleArray([...question.alternatives]);
+  return { ...question, alternatives: shuffledAlts };
+};
+
 // Utility function to get a specific number of random questions from each session
 const getSampledQuestions = (
   allQuestions: Question[],
@@ -113,49 +147,45 @@ export default function Home() {
       let questionsForRound: Question[] = [];
 
       if (session === "all") {
-        // Shuffle all questions and take the desired number
-        questionsForRound = [...allQuestions]
-          .sort(() => 0.5 - Math.random())
-          .slice(0, numQuestions);
+        // Use the improved random selection for all questions
+        questionsForRound = getRandomQuestions(allQuestions, numQuestions);
       } else {
-        // Filter by session, shuffle, and take the desired number
+        // Filter by session first, then use improved random selection
         const sessionQuestions = allQuestions.filter(
           (q) => q.pdf_filename === session
         );
-        questionsForRound = [...sessionQuestions]
-          .sort(() => 0.5 - Math.random())
-          .slice(0, numQuestions);
+        questionsForRound = getRandomQuestions(sessionQuestions, numQuestions);
       }
+
       // If sampling results in 0 (e.g. numQuestions is 0 or source is empty), fallback to a small sample if possible
       if (
         questionsForRound.length === 0 &&
         allQuestions.length > 0 &&
         numQuestions > 0
       ) {
-        // This case should be rare if numQuestions > 0 and allQuestions has items
-        // but as a fallback, try taking a few from all questions
-        questionsForRound = [...allQuestions]
-          .sort(() => 0.5 - Math.random())
-          .slice(0, Math.min(numQuestions, 5));
+        questionsForRound = getRandomQuestions(
+          allQuestions,
+          Math.min(numQuestions, 5)
+        );
       }
 
       setActiveQuestions(questionsForRound);
       setCurrentQuestionIndex(0);
       if (questionsForRound.length > 0) {
         setCurrentQuestion(questionsForRound[0]);
-        setShowSessionSelector(false); // Hide session selector once quiz starts
+        setShowSessionSelector(false);
       } else {
         setCurrentQuestion(null);
-        setShowSessionSelector(true); // Show session selector if no questions for this round
+        setShowSessionSelector(true);
       }
       setStreak(0);
       setAnswerStatus(null);
       setSelectedAlternativeLabel(null);
-      setIncorrectlyAnsweredQuestions([]); // Clear mistakes for the new round
-      setQuestionToReview(null); // Ensure review modal is closed
-      setAnswerHistory({}); // Clear answer history for the new round
+      setIncorrectlyAnsweredQuestions([]);
+      setQuestionToReview(null);
+      setAnswerHistory({});
       if (feedbackTimeoutId) {
-        clearTimeout(feedbackTimeoutId); // Clear any pending feedback timeout
+        clearTimeout(feedbackTimeoutId);
         setFeedbackTimeoutId(null);
       }
     },
@@ -273,11 +303,6 @@ export default function Home() {
       const prevIndex = currentQuestionIndex - 1;
       setCurrentQuestionIndex(prevIndex);
       setCurrentQuestion(activeQuestions[prevIndex]);
-      // Optionally, restore previous answer selection for display, but not auto-submit or change status
-      // const previousAnswer = answerHistory[activeQuestions[prevIndex].number];
-      // if (previousAnswer) {
-      //   setSelectedAlternativeLabel(previousAnswer.selectedAlternativeLabel);
-      // }
     }
   };
 
@@ -612,7 +637,7 @@ export default function Home() {
               {incorrectlyAnsweredQuestions.map((q, index) => (
                 <button
                   key={`${q.number}-${index}`}
-                  onClick={() => setQuestionToReview(q)}
+                  onClick={() => setQuestionToReview(shuffleAlternatives(q))}
                   title={`Review Question ${q.number}`}
                   className="aspect-square bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded-md flex items-center justify-center text-sm transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-red-400"
                 >

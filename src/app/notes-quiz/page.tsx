@@ -15,6 +15,31 @@ import {
 // Define a type for the loaded questions, assuming direct array from JSON
 type QuestionsData = Question[];
 
+// Helper function to shuffle an array (Fisher-Yates shuffle)
+const shuffleArray = <T,>(array: T[]): T[] => {
+  const newArray = [...array];
+  for (let i = newArray.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+  }
+  return newArray;
+};
+
+// Helper function to shuffle alternatives within a question
+const shuffleAlternatives = (question: Question | null): Question | null => {
+  if (!question) return null;
+  // Ensure alternatives exist and is an array before shuffling
+  if (!question.alternatives || !Array.isArray(question.alternatives)) {
+    console.warn(
+      "Question is missing alternatives or alternatives is not an array:",
+      question
+    );
+    return question; // Return original question if alternatives are malformed
+  }
+  const shuffledAlts = shuffleArray([...question.alternatives]);
+  return { ...question, alternatives: shuffledAlts };
+};
+
 // Utility function to get a specific number of random questions from each session
 // This might be removed or simplified if not needed for single source
 const getSampledQuestions = (
@@ -174,7 +199,7 @@ export default function NotesQuizPage() {
       setActiveQuestions(questionsForRound);
       setCurrentQuestionIndex(0);
       if (questionsForRound.length > 0) {
-        setCurrentQuestion(questionsForRound[0]);
+        setCurrentQuestion(shuffleAlternatives(questionsForRound[0])); // Shuffle alts
         setShowQuizSetup(false); // Hide setup once quiz starts
       } else {
         setCurrentQuestion(null);
@@ -226,7 +251,7 @@ export default function NotesQuizPage() {
       ) {
         const nextIndex = currentQuestionIndex + 1;
         setCurrentQuestionIndex(nextIndex);
-        setCurrentQuestion(activeQuestions[nextIndex]);
+        setCurrentQuestion(shuffleAlternatives(activeQuestions[nextIndex])); // Shuffle alts
         if (skipped) setAnswerStatus(null);
       } else {
         setCurrentQuestion(null);
@@ -291,7 +316,7 @@ export default function NotesQuizPage() {
       clearFeedbackAndTimeout();
       const prevIndex = currentQuestionIndex - 1;
       setCurrentQuestionIndex(prevIndex);
-      setCurrentQuestion(activeQuestions[prevIndex]);
+      setCurrentQuestion(shuffleAlternatives(activeQuestions[prevIndex])); // Shuffle alts
     }
   };
 
@@ -535,9 +560,6 @@ export default function NotesQuizPage() {
                     disabled={!!answerStatus}
                     className={buttonClass}
                   >
-                    <span className="mr-2 font-bold">
-                      {alt.label.toUpperCase()}.
-                    </span>
                     {alt.text}
                   </button>
                 );
@@ -608,7 +630,7 @@ export default function NotesQuizPage() {
               {incorrectlyAnsweredQuestions.map((q, index) => (
                 <button
                   key={`${q.number}-${index}`}
-                  onClick={() => setQuestionToReview(q)}
+                  onClick={() => setQuestionToReview(shuffleAlternatives(q))} // Shuffle alts for review
                   title={`Review Question ${q.number}`}
                   className="aspect-square bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded-md flex items-center justify-center text-sm transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-red-400"
                 >
