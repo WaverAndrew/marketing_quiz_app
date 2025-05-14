@@ -11,6 +11,7 @@ import {
   Lightbulb,
   AlertTriangle,
 } from "lucide-react"; // Import icons
+import { event } from "../../utils/analytics";
 
 // Define a type for the loaded questions, assuming direct array from JSON
 type QuestionsData = Question[];
@@ -223,7 +224,14 @@ export default function NotesQuizPage() {
   // Removed handleSelectSessionAndStart
 
   const handleStartQuiz = () => {
-    // Modified to pass selectedSession
+    // Track quiz start event
+    event({
+      action: "start_quiz",
+      params: {
+        session: selectedSession,
+        num_questions: numQuestions,
+      },
+    });
     startNewQuizRound(selectedSession);
   };
 
@@ -269,10 +277,21 @@ export default function NotesQuizPage() {
       currentQuestion.correct_answer.toUpperCase();
     setSelectedAlternativeLabel(alternative.label);
 
+    // Track answer event
+    event({
+      action: "answer_question",
+      params: {
+        question_number: currentQuestion.number,
+        is_correct: isCorrect,
+        selected_answer: alternative.label,
+        correct_answer: currentQuestion.correct_answer,
+        session: selectedSession,
+      },
+    });
+
     setAnswerHistory((prev) => ({
       ...prev,
       [currentQuestion.number]: {
-        // Assuming question numbers are still unique
         selectedAlternativeLabel: alternative.label,
         isCorrect,
       },
@@ -303,6 +322,15 @@ export default function NotesQuizPage() {
     if (!currentQuestion || answerStatus) return;
     clearFeedbackAndTimeout();
     setAnswerStatus("skipped");
+
+    // Track skip event
+    event({
+      action: "skip_question",
+      params: {
+        question_number: currentQuestion.number,
+        session: selectedSession,
+      },
+    });
 
     const newTimeoutId = setTimeout(() => {
       loadNextQuestion(true);
