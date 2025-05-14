@@ -416,7 +416,7 @@ export default function Home() {
         </div>
         <button
           onClick={() => setShowPinInput((prev) => !prev)}
-          className="text-sm text-slate-500 mt-10 hover:text-slate-700 underline focus:outline-none cursor-pointer"
+          className="text-sm text-slate-500 mt-10 hover:text-slate-700 focus:outline-none cursor-pointer"
         >
           Ready to learn something new?
         </button>
