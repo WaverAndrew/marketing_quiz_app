@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation"; // Added for navigation
+import { useRouter, usePathname } from "next/navigation"; // Added usePathname
 import { Question, Alternative } from "../types";
 import {
   X,
@@ -11,9 +11,33 @@ import {
   Lightbulb,
   AlertTriangle,
 } from "lucide-react"; // Import icons
+import { v4 as uuidv4 } from "uuid"; // For generating unique IDs
+import { createClient, SupabaseClient } from "@supabase/supabase-js"; // For Supabase
 
 // Define a type for the loaded questions, assuming direct array from JSON
 type QuestionsData = Question[];
+
+// --- BEGIN SUPABASE/ANALYTICS SETUP ---
+// IMPORTANT: These are now read from environment variables
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+const APP_VERSION = "1.0.0"; // Example app version
+
+interface QuizEventData {
+  quiz_round_id: string;
+  user_id: string | null;
+  question_original_id: string;
+  // question_text is intentionally omitted as per user request
+  session_name: string;
+  selected_alternative_label: string | null;
+  is_correct: boolean | null;
+  was_skipped: boolean;
+  time_taken_ms: number;
+  streak_at_event: number;
+  app_version: string;
+}
+// --- END SUPABASE/ANALYTICS SETUP ---
 
 // Helper function to shuffle an array (Fisher-Yates shuffle)
 const shuffleArray = <T,>(array: T[]): T[] => {
@@ -105,9 +129,76 @@ export default function Home() {
   const [showPinInput, setShowPinInput] = useState(false);
   const [enteredPin, setEnteredPin] = useState("");
 
+  // --- BEGIN ANALYTICS STATE ---
+  const [supabase, setSupabase] = useState<SupabaseClient | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [currentQuizRoundId, setCurrentQuizRoundId] = useState<string | null>(
+    null
+  );
+  const [questionStartTime, setQuestionStartTime] = useState<number | null>(
+    null
+  );
+  // --- END ANALYTICS STATE ---
+
   const router = useRouter(); // Initialize router
+  const pathname = usePathname(); // Get current pathname
+
+  // --- BEGIN ANALYTICS FUNCTIONS ---
+  const logQuizEvent = async (eventData: QuizEventData) => {
+    // Check if we are in the special quiz context (e.g., after PIN entry)
+    // Based on handlePinSubmit, let's assume if pathname includes '/notes-quiz', it's the special one.
+    if (pathname?.includes("/notes-quiz")) {
+      // Added optional chaining for pathname
+      // console.log("Special quiz active, not logging analytics event.");
+      return;
+    }
+
+    if (
+      supabase &&
+      eventData.user_id &&
+      eventData.quiz_round_id &&
+      currentQuestion
+    ) {
+      try {
+        const { error } = await supabase
+          .from("quiz_events")
+          .insert([eventData]);
+        if (error) {
+          console.error("Error logging quiz event to Supabase:", error);
+        } else {
+          // console.log("Quiz event logged:", eventData);
+        }
+      } catch (e) {
+        console.error("Exception during quiz event logging:", e);
+      }
+    } else {
+      // console.warn("Supabase client not ready or missing data, event not logged.", { supabase, userId, currentQuizRoundId, currentQuestion });
+    }
+  };
+  // --- END ANALYTICS FUNCTIONS ---
 
   useEffect(() => {
+    // Initialize Supabase client
+    if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+      const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      setSupabase(supabaseClient);
+    } else {
+      console.warn(
+        "Supabase URL or Anon Key is not configured in environment variables (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY). Analytics will not be sent."
+      );
+    }
+
+    // Get or create a user ID
+    const getOrCreateUserId = (): string => {
+      let storedUserId = localStorage.getItem("quizUserId");
+      if (!storedUserId) {
+        storedUserId = uuidv4();
+        localStorage.setItem("quizUserId", storedUserId);
+      }
+      return storedUserId;
+    };
+    setUserId(getOrCreateUserId());
+
     async function loadInitialData() {
       setIsLoading(true);
       try {
@@ -145,6 +236,12 @@ export default function Home() {
   const startNewQuizRound = useCallback(
     (session: string) => {
       let questionsForRound: Question[] = [];
+
+      // --- ANALYTICS: Set quiz round ID and start time for first question ---
+      const newQuizRoundId = uuidv4();
+      setCurrentQuizRoundId(newQuizRoundId);
+      setQuestionStartTime(Date.now());
+      // --- END ANALYTICS ---
 
       if (session === "all") {
         // Use the improved random selection for all questions
@@ -189,7 +286,7 @@ export default function Home() {
         setFeedbackTimeoutId(null);
       }
     },
-    [allQuestions, numQuestions, feedbackTimeoutId]
+    [allQuestions, numQuestions, feedbackTimeoutId] // Removed supabase, userId from deps for now as logQuizEvent handles their nullability
   );
 
   const handlePinSubmit = () => {
@@ -237,6 +334,7 @@ export default function Home() {
         setCurrentQuestionIndex(nextIndex);
         setCurrentQuestion(activeQuestions[nextIndex]);
         if (skipped) setAnswerStatus(null); // Clear skip status for next question
+        setQuestionStartTime(Date.now()); // --- ANALYTICS: Reset start time for new question ---
       } else {
         setCurrentQuestion(null); // End of quiz
       }
@@ -253,21 +351,15 @@ export default function Home() {
       currentQuestion.correct_answer.toUpperCase();
     setSelectedAlternativeLabel(alternative.label);
 
-    setAnswerHistory((prev) => ({
-      ...prev,
-      [currentQuestion.number]: {
-        selectedAlternativeLabel: alternative.label,
-        isCorrect,
-      },
-    }));
-
+    let newStreak = streak;
     if (isCorrect) {
-      setStreak((prevStreak) => prevStreak + 1);
+      newStreak = streak + 1;
+      setStreak(newStreak);
       setAnswerStatus("correct");
     } else {
-      setStreak(0);
+      newStreak = 0;
+      setStreak(newStreak);
       setAnswerStatus("incorrect");
-      // Add to incorrectly answered questions list, avoid duplicates if any
       setIncorrectlyAnsweredQuestions((prev) => {
         if (!prev.find((q) => q.number === currentQuestion.number)) {
           return [...prev, currentQuestion];
@@ -276,10 +368,37 @@ export default function Home() {
       });
     }
 
+    // --- ANALYTICS: Log answer event ---
+    if (currentQuizRoundId && userId && questionStartTime) {
+      const timeTakenMs = Date.now() - questionStartTime;
+      const eventData: QuizEventData = {
+        quiz_round_id: currentQuizRoundId,
+        user_id: userId,
+        question_original_id: currentQuestion.number,
+        session_name: selectedSession,
+        selected_alternative_label: alternative.label,
+        is_correct: isCorrect,
+        was_skipped: false,
+        time_taken_ms: timeTakenMs,
+        streak_at_event: newStreak, // Log the streak AFTER this event
+        app_version: APP_VERSION,
+      };
+      logQuizEvent(eventData);
+    }
+    // --- END ANALYTICS ---
+
+    setAnswerHistory((prev) => ({
+      ...prev,
+      [currentQuestion.number]: {
+        selectedAlternativeLabel: alternative.label,
+        isCorrect,
+      },
+    }));
+
     const newTimeoutId = setTimeout(() => {
       loadNextQuestion();
       setFeedbackTimeoutId(null); // Clear the stored ID once executed
-    }, 1500);
+    }, 750); // Reduced delay from 1500ms
     setFeedbackTimeoutId(newTimeoutId);
   };
 
@@ -287,6 +406,25 @@ export default function Home() {
     if (!currentQuestion || answerStatus) return; // Don't skip if an answer is already processed or no question
     clearFeedbackAndTimeout();
     setAnswerStatus("skipped"); // Optional: visual feedback for skip
+
+    // --- ANALYTICS: Log skip event ---
+    if (currentQuizRoundId && userId && questionStartTime && currentQuestion) {
+      const timeTakenMs = Date.now() - questionStartTime;
+      const eventData: QuizEventData = {
+        quiz_round_id: currentQuizRoundId,
+        user_id: userId,
+        question_original_id: currentQuestion.number,
+        session_name: selectedSession,
+        selected_alternative_label: null,
+        is_correct: null,
+        was_skipped: true,
+        time_taken_ms: timeTakenMs,
+        streak_at_event: streak, // Streak remains unchanged on skip
+        app_version: APP_VERSION,
+      };
+      logQuizEvent(eventData);
+    }
+    // --- END ANALYTICS ---
 
     // Duolingo often shows the answer when skipping
     // For simplicity here, we just move to the next question after a short delay
@@ -303,6 +441,7 @@ export default function Home() {
       const prevIndex = currentQuestionIndex - 1;
       setCurrentQuestionIndex(prevIndex);
       setCurrentQuestion(activeQuestions[prevIndex]);
+      setQuestionStartTime(Date.now()); // --- ANALYTICS: Reset start time for question viewed ---
     }
   };
 
